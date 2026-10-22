@@ -1,0 +1,61 @@
+x-service: &service
+  build: .
+  image: eda-order-flow
+  environment:
+    RABBITMQ_HOST: broker
+    LOG_FILE: /app/logs/events.log
+    PAYMENT_DENY_RATE: ${PAYMENT_DENY_RATE:-0}
+  volumes:
+    - ./logs:/app/logs
+  depends_on:
+    broker:
+      condition: service_healthy
+
+services:
+  broker:
+    image: rabbitmq:3-management
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 5s
+      timeout: 10s
+      retries: 20
+      start_period: 10s
+    ports:
+      - "15672:15672"
+
+  order_placement:
+    <<: *service
+    command: python -m services.order_placement
+
+  payment:
+    <<: *service
+    command: python -m services.payment
+
+  order_fulfillment:
+    <<: *service
+    command: python -m services.order_fulfillment
+
+  shipping:
+    <<: *service
+    command: python -m services.shipping
+
+  notification:
+    <<: *service
+    command: python -m services.notification
+
+  app:
+    <<: *service
+    depends_on:
+      broker:
+        condition: service_healthy
+      order_placement:
+        condition: service_started
+      payment:
+        condition: service_started
+      order_fulfillment:
+        condition: service_started
+      shipping:
+        condition: service_started
+      notification:
+        condition: service_started
+    command: python place_order.py
